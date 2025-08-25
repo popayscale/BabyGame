@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Peinture Mobile</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            touch-action: none;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #canvas {
+            display: block;
+            background: white;
+            touch-action: none;
+        }
+
+        .ui-panel {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 10px;
+            padding: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 100;
+        }
+
+        #colorPanel {
+            top: 10px;
+            left: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .current-color {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: 3px solid #333;
+            margin-bottom: 10px;
+        }
+
+        .color-palette {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 5px;
+        }
+
+        .color-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 2px solid #333;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        .color-btn:active {
+            transform: scale(0.9);
+        }
+
+        .color-btn.selected {
+            border-width: 4px;
+            border-color: #000;
+        }
+
+        #controlPanel {
+            bottom: 10px;
+            right: 10px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .control-btn {
+            width: 60px;
+            height: 60px;
+            border: none;
+            border-radius: 50%;
+            background: #007bff;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            transition: all 0.1s;
+        }
+
+        .control-btn:active {
+            transform: scale(0.95);
+            background: #0056b3;
+        }
+
+        .help-btn {
+            background: #28a745;
+        }
+
+        .clear-btn {
+            background: #dc3545;
+        }
+
+        .undo-btn {
+            background: #ffc107;
+            color: #333;
+        }
+
+        #helpModal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            max-width: 90%;
+            max-height: 80%;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .help-section {
+            margin-bottom: 15px;
+        }
+
+        .help-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #007bff;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 5px;
+        }
+
+        .help-item {
+            margin: 8px 0;
+            padding: 5px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        .close-btn {
+            width: 100%;
+            padding: 15px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            margin-top: 20px;
+            cursor: pointer;
+        }
+
+        #brush {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 2px solid #333;
+            pointer-events: none;
+            z-index: 50;
+            display: none;
+        }
+
+        .size-controls {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 10px;
+        }
+
+        .size-btn {
+            width: 30px;
+            height: 30px;
+            border: 2px solid #333;
+            background: white;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        @media (max-width: 480px) {
+            .color-btn {
+                width: 35px;
+                height: 35px;
+            }
+            
+            .current-color {
+                width: 45px;
+                height: 45px;
+            }
+            
+            .control-btn {
+                width: 55px;
+                height: 55px;
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="canvas"></canvas>
+        <div id="brush"></div>
+        
+        <!-- Panel de couleurs -->
+        <div id="colorPanel" class="ui-panel">
+            <div class="current-color" id="currentColor"></div>
+            <div class="color-palette" id="colorPalette"></div>
+            <div class="size-controls">
+                <div class="size-btn" data-size="small">S</div>
+                <div class="size-btn" data-size="medium">M</div>
+                <div class="size-btn" data-size="large">L</div>
+            </div>
+        </div>
+        
+        <!-- Panel de contrôles -->
+        <div id="controlPanel" class="ui-panel">
+            <button class="control-btn undo-btn" id="undoBtn" title="Annuler">↶</button>
+            <button class="control-btn clear-btn" id="clearBtn" title="Effacer">🗑</button>
+            <button class="control-btn help-btn" id="helpBtn" title="Aide">?</button>
+        </div>
+        
+        <!-- Modal d'aide -->
+        <div id="helpModal">
+            <div class="modal-content">
+                <div class="modal-header">COMMENT JOUER</div>
+                
+                <div class="help-section">
+                    <div class="help-title">🎨 PEINTURE</div>
+                    <div class="help-item">Touchez et glissez votre doigt sur l'écran pour peindre</div>
+                    <div class="help-item">Gardez le doigt appuyé et bougez pour créer des lignes continues</div>
+                    <div class="help-item">Soulevez le doigt pour arrêter de peindre</div>
+                </div>
+                
+                <div class="help-section">
+                    <div class="help-title">🎨 COULEURS</div>
+                    <div class="help-item">La couleur actuelle est affichée en haut à gauche</div>
+                    <div class="help-item">Touchez une couleur dans la palette pour la sélectionner</div>
+                    <div class="help-item">6 couleurs disponibles : Rouge, Bleu, Vert, Jaune, Noir, Rose</div>
+                </div>
+                
+                <div class="help-section">
+                    <div class="help-title">📏 TAILLES</div>
+                    <div class="help-item">S : Petit pinceau pour les détails</div>
+                    <div class="help-item">M : Pinceau moyen (par défaut)</div>
+                    <div class="help-item">L : Gros pinceau pour remplir</div>
+                </div>
+                
+                <div class="help-section">
+                    <div class="help-title">🔧 CONTRÔLES</div>
+                    <div class="help-item">↶ : Annuler le dernier trait</div>
+                    <div class="help-item">🗑 : Effacer tout le dessin</div>
+                    <div class="help-item">? : Afficher/masquer cette aide</div>
+                </div>
+                
+                <button class="close-btn" onclick="closeHelp()">FERMER L'AIDE</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class PaintApp {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.brush = document.getElementById('brush');
+                
+                this.setupCanvas();
+                this.setupControls();
+                
+                // État du jeu
+                this.isDrawing = false;
+                this.currentColor = '#3296ff';
+                this.brushSize = 15;
+                this.strokes = [];
+                this.currentStroke = null;
+                
+                // Couleurs disponibles
+                this.colors = [
+                    '#ff3232', '#3296ff', '#32ff32', 
+                    '#ffff32', '#000000', '#ff32ff'
+                ];
+                
+                this.setupColorPalette();
+                this.updateCurrentColor();
+                this.updateBrushSize();
+                
+                // Événements tactiles
+                this.setupTouchEvents();
+            }
+            
+            setupCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                
+                // Configuration du contexte
+                this.ctx.lineCap = 'round';
+                this.ctx.lineJoin = 'round';
+                
+                // Redimensionnement automatique
+                window.addEventListener('resize', () => {
+                    this.canvas.width = window.innerWidth;
+                    this.canvas.height = window.innerHeight;
+                    this.redrawAll();
+                });
+            }
+            
+            setupControls() {
+                document.getElementById('undoBtn').addEventListener('click', () => this.undo());
+                document.getElementById('clearBtn').addEventListener('click', () => this.clear());
+                document.getElementById('helpBtn').addEventListener('click', () => this.toggleHelp());
+                
+                // Contrôles de taille
+                document.querySelectorAll('.size-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const size = e.target.dataset.size;
+                        this.setBrushSize(size);
+                    });
+                });
+            }
+            
+            setupColorPalette() {
+                const palette = document.getElementById('colorPalette');
+                palette.innerHTML = '';
+                
+                this.colors.forEach((color, index) => {
+                    const colorBtn = document.createElement('div');
+                    colorBtn.className = 'color-btn';
+                    colorBtn.style.backgroundColor = color;
+                    colorBtn.dataset.color = color;
+                    
+                    if (color === this.currentColor) {
+                        colorBtn.classList.add('selected');
+                    }
+                    
+                    colorBtn.addEventListener('click', () => this.selectColor(color));
+                    palette.appendChild(colorBtn);
+                });
+            }
+            
+            selectColor(color) {
+                this.currentColor = color;
+                this.updateCurrentColor();
+                
+                // Mettre à jour la sélection visuelle
+                document.querySelectorAll('.color-btn').forEach(btn => {
+                    btn.classList.toggle('selected', btn.dataset.color === color);
+                });
+            }
+            
+            updateCurrentColor() {
+                document.getElementById('currentColor').style.backgroundColor = this.currentColor;
+                this.brush.style.backgroundColor = this.currentColor;
+            }
+            
+            setBrushSize(size) {
+                switch(size) {
+                    case 'small':
+                        this.brushSize = 8;
+                        break;
+                    case 'medium':
+                        this.brushSize = 15;
+                        break;
+                    case 'large':
+                        this.brushSize = 25;
+                        break;
+                }
+                this.updateBrushSize();
+                
+                // Mettre à jour la sélection visuelle
+                document.querySelectorAll('.size-btn').forEach(btn => {
+                    btn.style.background = btn.dataset.size === size ? '#007bff' : 'white';
+                    btn.style.color = btn.dataset.size === size ? 'white' : '#333';
+                });
+            }
+            
+            updateBrushSize() {
+                const brushElement = document.getElementById('brush');
+                brushElement.style.width = this.brushSize + 'px';
+                brushElement.style.height = this.brushSize + 'px';
+            }
+            
+            setupTouchEvents() {
+                // Prévenir le défilement
+                document.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                }, { passive: false });
+                
+                this.canvas.addEventListener('touchstart', (e) => this.handleTouchStart(e));
+                this.canvas.addEventListener('touchmove', (e) => this.handleTouchMove(e));
+                this.canvas.addEventListener('touchend', (e) => this.handleTouchEnd(e));
+                
+                // Support souris pour les tests sur desktop
+                this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
+                this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+                this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+                this.canvas.addEventListener('mouseleave', (e) => this.handleMouseUp(e));
+            }
+            
+            getTouchPos(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const touch = e.touches[0] || e.changedTouches[0];
+                return {
+                    x: touch.clientX - rect.left,
+                    y: touch.clientY - rect.top
+                };
+            }
+            
+            getMousePos(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                return {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+            }
+            
+            handleTouchStart(e) {
+                e.preventDefault();
+                const pos = this.getTouchPos(e);
+                this.startDrawing(pos.x, pos.y);
+                this.showBrush(pos.x, pos.y);
+            }
+            
+            handleTouchMove(e) {
+                e.preventDefault();
+                if (!this.isDrawing) return;
+                const pos = this.getTouchPos(e);
+                this.draw(pos.x, pos.y);
+                this.showBrush(pos.x, pos.y);
+            }
+            
+            handleTouchEnd(e) {
+                e.preventDefault();
+                this.stopDrawing();
+                this.hideBrush();
+            }
+            
+            handleMouseDown(e) {
+                const pos = this.getMousePos(e);
+                this.startDrawing(pos.x, pos.y);
+                this.showBrush(pos.x, pos.y);
+            }
+            
+            handleMouseMove(e) {
+                if (!this.isDrawing) return;
+                const pos = this.getMousePos(e);
+                this.draw(pos.x, pos.y);
+                this.showBrush(pos.x, pos.y);
+            }
+            
+            handleMouseUp(e) {
+                this.stopDrawing();
+                this.hideBrush();
+            }
+            
+            showBrush(x, y) {
+                this.brush.style.display = 'block';
+                this.brush.style.left = (x - this.brushSize/2) + 'px';
+                this.brush.style.top = (y - this.brushSize/2) + 'px';
+            }
+            
+            hideBrush() {
+                this.brush.style.display = 'none';
+            }
+            
+            startDrawing(x, y) {
+                this.isDrawing = true;
+                this.currentStroke = {
+                    color: this.currentColor,
+                    size: this.brushSize,
+                    points: [{x, y}]
+                };
+            }
+            
+            draw(x, y) {
+                if (!this.isDrawing || !this.currentStroke) return;
+                
+                this.currentStroke.points.push({x, y});
+                
+                // Dessiner le segment actuel
+                const points = this.currentStroke.points;
+                const lastPoint = points[points.length - 2];
+                const currentPoint = points[points.length - 1];
+                
+                if (lastPoint) {
+                    this.ctx.strokeStyle = this.currentStroke.color;
+                    this.ctx.lineWidth = this.currentStroke.size;
+                    
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(lastPoint.x, lastPoint.y);
+                    this.ctx.lineTo(currentPoint.x, currentPoint.y);
+                    this.ctx.stroke();
+                }
+            }
+            
+            stopDrawing() {
+                if (!this.isDrawing || !this.currentStroke) return;
+                
+                this.isDrawing = false;
+                if (this.currentStroke.points.length > 0) {
+                    this.strokes.push(this.currentStroke);
+                }
+                this.currentStroke = null;
+            }
+            
+            undo() {
+                if (this.strokes.length > 0) {
+                    this.strokes.pop();
+                    this.redrawAll();
+                }
+            }
+            
+            clear() {
+                this.strokes = [];
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            }
+            
+            redrawAll() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                this.strokes.forEach(stroke => {
+                    if (stroke.points.length === 0) return;
+                    
+                    this.ctx.strokeStyle = stroke.color;
+                    this.ctx.lineWidth = stroke.size;
+                    
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+                    
+                    for (let i = 1; i < stroke.points.length; i++) {
+                        this.ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+                    }
+                    
+                    this.ctx.stroke();
+                });
+            }
+            
+            toggleHelp() {
+                const modal = document.getElementById('helpModal');
+                modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
+            }
+        }
+        
+        function closeHelp() {
+            document.getElementById('helpModal').style.display = 'none';
+        }
+        
+        // Initialiser l'application
+        window.addEventListener('DOMContentLoaded', () => {
+            new PaintApp();
+        });
+        
+        // Empêcher le zoom sur iOS
+        document.addEventListener('gesturestart', function (e) {
+            e.preventDefault();
+        });
+    </script>
+</body>
+</html>
