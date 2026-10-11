@@ -193,6 +193,39 @@
             display: none;
         }
 
+        /* Curseur de la manette */
+        #padCursor {
+            position: absolute;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            border: 2px solid #333;
+            box-shadow: 0 0 0 2px rgba(255,255,255,0.9);
+            pointer-events: none;
+            z-index: 60;
+            display: none;
+        }
+
+        #toast {
+            position: fixed;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.85);
+            color: white;
+            padding: 10px 18px;
+            border-radius: 20px;
+            font-size: 14px;
+            z-index: 2000;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        #toast.show {
+            opacity: 1;
+        }
+
         .size-controls {
             display: flex;
             align-items: center;
@@ -236,6 +269,8 @@
     <div id="gameContainer">
         <canvas id="canvas"></canvas>
         <div id="brush"></div>
+        <div id="padCursor"></div>
+        <div id="toast"></div>
         
         <!-- Panel de couleurs -->
         <div id="colorPanel" class="ui-panel">
@@ -287,6 +322,17 @@
                     <div class="help-item">🗑 : Effacer tout le dessin</div>
                     <div class="help-item">? : Afficher/masquer cette aide</div>
                 </div>
+
+                <div class="help-section">
+                    <div class="help-title">🎮 MANETTE XBOX 360</div>
+                    <div class="help-item">Joystick gauche : déplace le curseur ET peint</div>
+                    <div class="help-item">Joystick droit : déplace le curseur sans peindre</div>
+                    <div class="help-item">X : Bleu &nbsp;|&nbsp; A : Vert &nbsp;|&nbsp; B : Rouge &nbsp;|&nbsp; Y : Jaune</div>
+                    <div class="help-item">LB : Noir &nbsp;|&nbsp; RB : Rose</div>
+                    <div class="help-item">Croix directionnelle haut/bas : taille du pinceau</div>
+                    <div class="help-item">Back : Annuler &nbsp;|&nbsp; Start : Aide</div>
+                    <div class="help-item">Appuyer sur les deux joysticks (L3 + R3) : Tout effacer</div>
+                </div>
                 
                 <button class="close-btn" onclick="closeHelp()">FERMER L'AIDE</button>
             </div>
@@ -307,6 +353,7 @@
                 this.isDrawing = false;
                 this.currentColor = '#3296ff';
                 this.brushSize = 15;
+                this.sizeName = 'medium';
                 this.strokes = [];
                 this.currentStroke = null;
                 
@@ -322,6 +369,9 @@
                 
                 // Événements tactiles
                 this.setupTouchEvents();
+
+                // Manette
+                this.setupGamepad();
             }
             
             setupCanvas() {
@@ -336,6 +386,8 @@
                 window.addEventListener('resize', () => {
                     this.canvas.width = window.innerWidth;
                     this.canvas.height = window.innerHeight;
+                    this.ctx.lineCap = 'round';
+                    this.ctx.lineJoin = 'round';
                     this.redrawAll();
                 });
             }
@@ -386,9 +438,11 @@
             updateCurrentColor() {
                 document.getElementById('currentColor').style.backgroundColor = this.currentColor;
                 this.brush.style.backgroundColor = this.currentColor;
+                document.getElementById('padCursor').style.backgroundColor = this.currentColor;
             }
             
             setBrushSize(size) {
+                this.sizeName = size;
                 switch(size) {
                     case 'small':
                         this.brushSize = 8;
@@ -413,6 +467,10 @@
                 const brushElement = document.getElementById('brush');
                 brushElement.style.width = this.brushSize + 'px';
                 brushElement.style.height = this.brushSize + 'px';
+
+                const padCursor = document.getElementById('padCursor');
+                padCursor.style.width = this.brushSize + 'px';
+                padCursor.style.height = this.brushSize + 'px';
             }
             
             setupTouchEvents() {
@@ -573,6 +631,140 @@
             toggleHelp() {
                 const modal = document.getElementById('helpModal');
                 modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
+            }
+
+            // ==================== MANETTE ====================
+
+            setupGamepad() {
+                this.pad = {
+                    x: window.innerWidth / 2,
+                    y: window.innerHeight / 2,
+                    connected: false,
+                    painting: false,   // un trait est en cours via le joystick gauche
+                    prev: [],
+                    last: performance.now()
+                };
+                this.padCursor = document.getElementById('padCursor');
+                this.toastEl = document.getElementById('toast');
+                this.toastTimer = null;
+
+                // Mapping standard Xbox 360 : bouton -> couleur
+                this.padColors = {
+                    0: '#32ff32', // A  : vert
+                    1: '#ff3232', // B  : rouge
+                    2: '#3296ff', // X  : bleu
+                    3: '#ffff32', // Y  : jaune
+                    4: '#000000', // LB : noir
+                    5: '#ff32ff'  // RB : rose
+                };
+
+                window.addEventListener('gamepadconnected', () => this.showToast('🎮 Manette connectée'));
+                window.addEventListener('gamepaddisconnected', () => this.showToast('🎮 Manette déconnectée'));
+
+                requestAnimationFrame((t) => this.pollGamepad(t));
+            }
+
+            showToast(msg) {
+                this.toastEl.textContent = msg;
+                this.toastEl.classList.add('show');
+                clearTimeout(this.toastTimer);
+                this.toastTimer = setTimeout(() => this.toastEl.classList.remove('show'), 2000);
+            }
+
+            // Zone morte radiale : renvoie un vecteur de norme 0..1
+            applyDeadzone(x, y, dz = 0.2) {
+                const m = Math.hypot(x, y);
+                if (m < dz) return { x: 0, y: 0 };
+                const scale = Math.min(1, (m - dz) / (1 - dz)) / m;
+                return { x: x * scale, y: y * scale };
+            }
+
+            pollGamepad(now) {
+                requestAnimationFrame((t) => this.pollGamepad(t));
+
+                const pad = this.pad;
+                const dt = Math.min((now - pad.last) / 1000, 0.05);
+                pad.last = now;
+
+                const list = navigator.getGamepads ? navigator.getGamepads() : [];
+                const gp = Array.from(list).find(p => p && p.connected);
+
+                if (!gp) {
+                    if (pad.connected) {
+                        pad.connected = false;
+                        this.padCursor.style.display = 'none';
+                        if (pad.painting) {
+                            this.stopDrawing();
+                            pad.painting = false;
+                        }
+                    }
+                    return;
+                }
+
+                if (!pad.connected) {
+                    pad.connected = true;
+                    this.padCursor.style.display = 'block';
+                }
+
+                // ----- Boutons (détection du front montant) -----
+                const pressed = gp.buttons.map(b => b.pressed);
+                const justPressed = (i) => pressed[i] && !pad.prev[i];
+
+                for (const idx in this.padColors) {
+                    if (justPressed(Number(idx))) this.selectColor(this.padColors[idx]);
+                }
+
+                const sizes = ['small', 'medium', 'large'];
+                if (justPressed(12)) { // haut : plus gros
+                    const i = Math.min(sizes.length - 1, sizes.indexOf(this.sizeName) + 1);
+                    this.setBrushSize(sizes[i]);
+                }
+                if (justPressed(13)) { // bas : plus petit
+                    const i = Math.max(0, sizes.indexOf(this.sizeName) - 1);
+                    this.setBrushSize(sizes[i]);
+                }
+                if (justPressed(8)) this.undo();          // Back : annuler
+                if (justPressed(9)) this.toggleHelp();    // Start : aide
+                if (pressed[10] && pressed[11] && !(pad.prev[10] && pad.prev[11])) {
+                    this.clear();                         // L3 + R3 : tout effacer
+                }
+                pad.prev = pressed;
+
+                // ----- Joysticks -----
+                const L = this.applyDeadzone(gp.axes[0] || 0, gp.axes[1] || 0);
+                const R = this.applyDeadzone(gp.axes[2] || 0, gp.axes[3] || 0);
+
+                const ox = pad.x, oy = pad.y;
+                const LEFT_SPEED = 650;   // px/s, joystick gauche (peint)
+                const RIGHT_SPEED = 900;  // px/s, joystick droit (déplacement seul)
+
+                pad.x = Math.max(0, Math.min(this.canvas.width,  pad.x + (L.x * LEFT_SPEED + R.x * RIGHT_SPEED) * dt));
+                pad.y = Math.max(0, Math.min(this.canvas.height, pad.y + (L.y * LEFT_SPEED + R.y * RIGHT_SPEED) * dt));
+
+                // ----- Peinture : uniquement avec le joystick gauche -----
+                const leftActive = (L.x !== 0 || L.y !== 0);
+
+                if (leftActive) {
+                    // Nouveau trait si couleur/taille changées en cours de route
+                    if (pad.painting && this.currentStroke &&
+                        (this.currentStroke.color !== this.currentColor ||
+                         this.currentStroke.size !== this.brushSize)) {
+                        this.stopDrawing();
+                        pad.painting = false;
+                    }
+                    if (!pad.painting && !this.isDrawing) {
+                        this.startDrawing(ox, oy);
+                        pad.painting = true;
+                    }
+                    if (pad.painting) this.draw(pad.x, pad.y);
+                } else if (pad.painting) {
+                    this.stopDrawing();
+                    pad.painting = false;
+                }
+
+                // ----- Curseur -----
+                this.padCursor.style.left = (pad.x - this.brushSize / 2) + 'px';
+                this.padCursor.style.top  = (pad.y - this.brushSize / 2) + 'px';
             }
         }
         
